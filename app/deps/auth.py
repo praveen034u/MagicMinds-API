@@ -22,12 +22,34 @@ class CurrentUser:
 def get_jwks() -> Dict[str, Any]:
     """Fetch and cache JWKS from Auth0."""
     settings = get_settings()
+    
+    # Check if Auth0 is configured
+    if not settings.AUTH0_DOMAIN or not settings.AUTH0_JWKS_URL:
+        logger.error("Auth0 not configured - missing AUTH0_DOMAIN or AUTH0_JWKS_URL")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication not configured. Please set AUTH0_DOMAIN and AUTH0_JWKS_URL in environment variables."
+        )
+    
     try:
+        logger.info(f"Fetching JWKS from: {settings.AUTH0_JWKS_URL}")
         response = httpx.get(settings.AUTH0_JWKS_URL, timeout=10.0)
         response.raise_for_status()
         return response.json()
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error fetching JWKS: {e.response.status_code} - {e.response.text}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Authentication service returned error: {e.response.status_code}"
+        )
+    except httpx.RequestError as e:
+        logger.error(f"Network error fetching JWKS: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Cannot reach authentication service: {str(e)}"
+        )
     except Exception as e:
-        logger.error(f"Failed to fetch JWKS: {e}")
+        logger.error(f"Unexpected error fetching JWKS: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service unavailable"
@@ -69,25 +91,46 @@ def verify_token(token: str) -> Dict[str, Any]:
     try:
         signing_key = get_signing_key(token)
         
-        # Verify the token
-        payload = jwt.decode(
-            token,
-            signing_key,
-            algorithms=["RS256"],
-            audience=settings.AUTH0_AUDIENCE,
-            issuer=settings.AUTH0_ISSUER,
-            options={
-                "verify_signature": True,
-                "verify_aud": True,
-                "verify_iat": True,
-                "verify_exp": True,
-                "verify_nbf": True,
-                "verify_iss": True,
-                "require_aud": True,
-                "require_iat": True,
-                "require_exp": True,
-            }
-        )
+        # Accept both API audience and Client ID (for id_token)
+        # This allows using either access_token or id_token
+        valid_audiences = [
+            settings.AUTH0_AUDIENCE,  # API audience
+            settings.AUTH0_CLIENT_ID,  # Client ID (for id_token)
+        ]
+        
+        # Try to decode with the first audience, then try others if it fails
+        payload = None
+        last_error = None
+        
+        for audience in valid_audiences:
+            try:
+                payload = jwt.decode(
+                    token,
+                    signing_key,
+                    algorithms=["RS256"],
+                    audience=audience,
+                    issuer=settings.AUTH0_ISSUER,
+                    options={
+                        "verify_signature": True,
+                        "verify_aud": True,
+                        "verify_iat": True,
+                        "verify_exp": True,
+                        "verify_nbf": True,
+                        "verify_iss": True,
+                        "require_aud": True,
+                        "require_iat": True,
+                        "require_exp": True,
+                    }
+                )
+                # If successful, break out of loop
+                logger.info(f"Token verified with audience: {audience}")
+                break
+            except jwt.JWTClaimsError as e:
+                last_error = e
+                continue
+        
+        if payload is None:
+            raise last_error or jwt.JWTClaimsError("Invalid token claims")
         
         return payload
         
@@ -118,11 +161,28 @@ def verify_token(token: str) -> Dict[str, Any]:
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ) -> CurrentUser:
-    """Dependency to get current authenticated user from JWT."""
+    """
+    Dependency to get current authenticated user from JWT.
+    
+    Extracts user information from the Authorization header:
+    1. Extracts Bearer token from: Authorization: Bearer <token>
+    2. Verifies the JWT signature using Auth0's public keys (JWKS)
+    3. Validates token claims (audience, issuer, expiration, etc.)
+    4. Extracts user data from token payload:
+       - sub: Auth0 user ID (e.g., "auth0|123456789")
+       - email: User's email address
+    
+    Returns:
+        CurrentUser object with sub, email, and all token claims
+        
+    Raises:
+        HTTPException 401: If token is invalid, expired, or missing required claims
+    """
     token = credentials.credentials
     
     payload = verify_token(token)
     
+    # Extract 'sub' (subject) - this is the Auth0 user ID
     sub = payload.get("sub")
     if not sub:
         raise HTTPException(
@@ -130,6 +190,7 @@ async def get_current_user(
             detail="Invalid token: missing subject"
         )
     
+    # Extract email from standard claim or custom namespace
     email = payload.get("email") or payload.get("https://your-app.com/email")
     
     return CurrentUser(sub=sub, email=email, claims=payload)

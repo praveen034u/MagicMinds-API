@@ -5,12 +5,11 @@ from datetime import datetime
 from uuid import UUID
 
 class GameRoomCreate(BaseModel):
+    host_child_id: UUID  # Required - who is creating the room
     game_id: str
     difficulty: str
     max_players: int = Field(default=4, ge=2, le=8)
-    has_ai_player: bool = False
-    ai_player_name: Optional[str] = None
-    ai_player_avatar: Optional[str] = None
+    friend_ids: Optional[List[UUID]] = None  # Optional friend invitations
     selected_category: Optional[str] = None
 
 class RoomParticipantResponse(BaseModel):
@@ -48,7 +47,41 @@ class JoinRoomRequest(BaseModel):
     child_id: UUID
 
 class InviteFriendsRequest(BaseModel):
+    room_code: str
     friend_ids: List[UUID]
 
 class HandleJoinRequestRequest(BaseModel):
+    request_id: UUID
     approve: bool
+
+class JoinRequestCreate(BaseModel):
+    room_code: str
+    child_id: UUID
+
+class JoinRequestResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: UUID
+    room_id: UUID
+    child_id: UUID
+    status: str
+    created_at: datetime
+    updated_at: datetime
+
+class LeaveRoomRequest(BaseModel):
+    """Request to leave a room."""
+    child_id: UUID
+
+class CloseRoomRequest(BaseModel):
+    """Request to close a room."""
+    room_id: UUID
+
+class AcceptInvitationRequest(BaseModel):
+    """Request to accept a room invitation."""
+    invitation_id: UUID
+    child_id: UUID
+
+class DeclineInvitationRequest(BaseModel):
+    """Request to decline a room invitation."""
+    invitation_id: UUID
+    child_id: UUID

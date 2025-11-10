@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     # Stripe (optional)
     STRIPE_SECRET_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
+    STRIPE_PRICE_ID: str = ""
+    
+    # ElevenLabs (optional)
+    ELEVENLABS_API_KEY: str = ""
     
     @property
     def allowed_origins_list(self) -> List[str]:

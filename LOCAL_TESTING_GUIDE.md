@@ -4,42 +4,82 @@ Complete guide to test the FastAPI backend locally before deploying to Cloud Run
 
 ## 📋 Prerequisites
 
-- Python 3.12+
+- Python 3.11+
 - pip
+- Docker Desktop (for local PostgreSQL)
 - Auth0 account (already configured)
-- Supabase account (already configured)
+- Supabase account (optional, for production database)
 
-## 🚀 Quick Start (5 minutes)
+## 🚀 Quick Start - Local Development (5 minutes)
 
 ### Step 1: Install Dependencies
 
-```bash
-cd /app/api
+```powershell
+# PowerShell (Windows)
 pip install fastapi uvicorn[standard] sqlalchemy[asyncio] asyncpg python-jose[cryptography] httpx pydantic-settings
 ```
 
 Or install all dependencies from pyproject.toml:
 
-```bash
+```powershell
 pip install -e .
 ```
 
-### Step 2: Verify Environment
+### Step 2: Start Local PostgreSQL Database
 
-The `.env` file is already created with your Supabase and Auth0 credentials:
+**Important**: Make sure Docker Desktop is running first!
 
-```bash
+```powershell
+# Start PostgreSQL container
+docker-compose up -d
+
+# Verify it's running
+docker ps
+```
+
+You should see `magicminds_postgres` container running on port 5432.
+
+### Step 3: Verify Environment
+
+The `.env` file should be configured for local development:
+
+```powershell
 cat .env
 ```
 
 You should see:
-- ✅ `DATABASE_URL=postgresql+asyncpg://postgres:Admin@1234@...` (Supabase)
+- ✅ `DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/magicminds` (LOCAL)
 - ✅ `AUTH0_DOMAIN=dev-jbrriuc5vyjmiwtx.us.auth0.com`
 - ✅ All other Auth0 settings
 
-### Step 3: Run the API
+**Note**: For production deployment, switch `DATABASE_URL` back to Supabase connection string.
 
-```bash
+### Step 3.5: Initialize Database Tables
+
+**Important**: Run this once to create all database tables from your SQLAlchemy models:
+
+```powershell
+# Create all database tables
+python init_db.py
+```
+
+Expected output:
+```
+INFO:__main__:Creating database tables...
+INFO:__main__:Database tables created successfully!
+INFO:__main__:Tables created: children_profiles, game_rooms, parent_profiles, ...
+```
+
+Verify tables exist:
+```powershell
+docker exec -it magicminds_postgres psql -U postgres -d magicminds -c "\dt"
+```
+
+You should see 10 tables: `parent_profiles`, `children_profiles`, `friends`, `game_rooms`, `room_participants`, `join_requests`, `multiplayer_game_sessions`, `multiplayer_game_scores`, `generated_stories`, `voice_subscriptions`.
+
+### Step 4: Run the API
+
+```powershell
 uvicorn app.main:app --reload --port 8080
 ```
 
@@ -136,14 +176,17 @@ SELECT set_config('app.current_auth0_user_id', :user_id, false)
 4. Run:
 
 ```sql
+-- For local PostgreSQL, connect using psql:
+-- docker exec -it magicminds_postgres psql -U postgres -d magicminds
+
 -- Set RLS context manually
 SELECT set_config('app.current_auth0_user_id', 'auth0|YOUR_USER_ID', false);
 
--- Now query with RLS active
+-- Now query with RLS active (note: RLS policies need to be created first)
 SELECT * FROM public.parent_profiles;
 ```
 
-You should only see YOUR data, not all users.
+**Note for local development**: RLS policies are not automatically created by SQLAlchemy. You'll need to create them manually or use Alembic migrations. For now, the local database works without RLS - perfect for development!
 
 ## 📊 Database Verification
 

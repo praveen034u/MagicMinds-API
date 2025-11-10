@@ -5,9 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from .config import get_settings
 from .deps.db import init_db, close_db
-from .routers import health
-# Import other routers when created:
-# from .routers import profiles, friends, rooms, sessions, stories, billing
+from .routers import health, profiles, friends, rooms, sessions, stories, billing, voice
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,14 +48,13 @@ app.add_middleware(
 
 # Include routers
 app.include_router(health.router, tags=["Health"])
-
-# TODO: Uncomment as routers are created
-# app.include_router(profiles.router, prefix="/profiles", tags=["Profiles"])
-# app.include_router(friends.router, prefix="/friends", tags=["Friends"])
-# app.include_router(rooms.router, prefix="/rooms", tags=["Rooms"])
-# app.include_router(sessions.router, prefix="/sessions", tags=["Sessions"])
-# app.include_router(stories.router, prefix="/stories", tags=["Stories"])
-# app.include_router(billing.router, prefix="/billing", tags=["Billing"])
+app.include_router(profiles.router, prefix="/profiles", tags=["Profiles"])
+app.include_router(friends.router, prefix="/friends", tags=["Friends"])
+app.include_router(rooms.router, prefix="/rooms", tags=["Rooms"])
+app.include_router(sessions.router, prefix="/sessions", tags=["Sessions"])
+app.include_router(stories.router, prefix="/stories", tags=["Stories"])
+app.include_router(billing.router, prefix="/billing", tags=["Billing"])
+app.include_router(voice.router, prefix="/voice", tags=["Voice"])
 
 @app.get("/")
 async def root():
